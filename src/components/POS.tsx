@@ -35,7 +35,8 @@ import {
   ChevronUp,
   Check,
   CircleDot,
-  Globe
+  Globe,
+  RotateCcw
 } from 'lucide-react';
 import { cn, formatPhone } from '../lib/utils';
 import { format } from 'date-fns';
@@ -418,6 +419,20 @@ export const POS = () => {
     } catch (error) { console.error(error); }
   };
 
+  const handleReturnToCourt = async (tab: OpenTab) => {
+    if (!(tab as any).linkedBookingId) return;
+    try {
+      // Reopen the booking in the court list
+      await updateDoc(doc(db, 'bookings', (tab as any).linkedBookingId), {
+        courtFinalized: false
+      });
+      // Close the linked tab so it disappears from COMANDAS
+      await updateDoc(doc(db, 'openTabs', tab.id), { status: 'closed' });
+      // Navigate to court-payment tab
+      setActiveTab('court-payment');
+    } catch (error) { console.error(error); }
+  };
+
   const handleFinishCourtPayment = async () => {
     const booking = todayBookings.find(b => b.id === selectedBookingId);
     if (!booking) return;
@@ -753,6 +768,21 @@ export const POS = () => {
                               </button>
                             )}
                           </>
+                        )}
+                      </div>
+                      {(tab as any).linkedBookingId && (
+                        <button
+                          onClick={() => handleReturnToCourt(tab)}
+                          className="w-full flex items-center justify-center gap-1.5 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest text-blue-500 bg-blue-50 dark:bg-blue-900/20 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-all"
+                        >
+                          <RotateCcw size={10} /> Voltar para Quadra
+                        </button>
+                      )}
+                    </div>
+                  </motion.div>
+                ))}
+              </div>
+            </div>
                         )}
                       </div>
                     </div>
