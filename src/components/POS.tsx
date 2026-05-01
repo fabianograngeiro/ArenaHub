@@ -36,10 +36,11 @@ import {
   Check,
   CircleDot,
   Globe,
-  RotateCcw
+  RotateCcw,
+  Pencil
 } from 'lucide-react';
 import { cn, formatPhone } from '../lib/utils';
-import { format } from 'date-fns';
+import { format, addMinutes } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { SmartSearch } from './SmartSearch';
 import { WebsiteEditor } from './WebsiteEditor';
@@ -69,6 +70,8 @@ export const POS = () => {
   const [athletePayments, setAthletePayments] = useState<{name: string, value: number, paymentMethodId: string}[]>([]);
   const [initialAthletePayments, setInitialAthletePayments] = useState<{name: string, value: number, paymentMethodId: string}[]>([]);
   const [newAthlete, setNewAthlete] = useState({ name: '', value: 0, paymentMethodId: '' });
+  const [editingBooking, setEditingBooking] = useState<Booking | null>(null);
+  const [editBookingForm, setEditBookingForm] = useState({ customerName: '', customerPhone: '', totalPrice: 0, startTime: '', endTime: '' });
   
   // Court Share in Direct Sale
   const [courtShareToPay, setCourtShareToPay] = useState<{bookingId: string, amount: number, athleteName: string} | null>(null);
@@ -176,7 +179,49 @@ export const POS = () => {
     alert('PDF Gerado para impressao.');
   };
 
-  const handleCancelBooking = async (booking: Booking) => {
+  const handleDeleteBooking = async (booking: Booking) => {
+    if (!confirm(`Excluir o agendamento de ${booking.customerName}? Esta ação não pode ser desfeita.`)) return;
+    try {
+      await deleteDoc(doc(db, 'bookings', booking.id));
+      if (selectedBookingId === booking.id) {
+        setSelectedBookingId('');
+        setAthletePayments([]);
+        setInitialAthletePayments([]);
+      }
+    } catch (error) { console.error(error); }
+  };
+
+  const handleAdjustTime = async (booking: Booking, deltaMinutes: number) => {
+    try {
+      const newEnd = addMinutes(new Date(booking.endTime), deltaMinutes);
+      // 30 min = 50% of hourly rate → price per minute = totalPrice / durationMinutes
+      const durationMs = new Date(booking.endTime).getTime() - new Date(booking.startTime).getTime();
+      const durationMin = durationMs / 60000;
+      const pricePerMin = durationMin > 0 ? booking.totalPrice / durationMin : 0;
+      const newTotal = Math.max(0, Math.round((booking.totalPrice + pricePerMin * deltaMinutes) * 100) / 100);
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        endTime: newEnd.toISOString(),
+        totalPrice: newTotal
+      });
+    } catch (error) { console.error(error); }
+  };
+
+  const handleSaveEditBooking = async () => {
+    if (!editingBooking) return;
+    try {
+      await updateDoc(doc(db, 'bookings', editingBooking.id), {
+        customerName: editBookingForm.customerName,
+        customerPhone: editBookingForm.customerPhone,
+        totalPrice: Number(editBookingForm.totalPrice),
+        startTime: new Date(editBookingForm.startTime).toISOString(),
+        endTime: new Date(editBookingForm.endTime).toISOString()
+      });
+      setEditingBooking(null);
+    } catch (error) { console.error(error); }
+  };
+
+  const handleCancelBooking = async (booking: Booking | undefined) => {
+    if (!booking) return;
     if (!confirm('Tem certeza que deseja cancelar este agendamento?')) return;
     try {
       await updateDoc(doc(db, 'bookings', booking.id), {
@@ -800,35 +845,49 @@ export const POS = () => {
                   </h3>
                   <div className="space-y-2">
                     {todayBookings.filter(b => b.status !== 'cancelled' && !b.courtFinalized).map(booking => (
-                      <button 
-                        key={booking.id}
-                        onClick={() => {
-                          setSelectedBookingId(booking.id);
-                          const saved = (booking.payments || []).map(p => ({
-                            name: p.playerName || '',
-                            value: p.amount,
-                            paymentMethodId: p.methodId || ''
-                          }));
-                          setAthletePayments(saved);
-                          setInitialAthletePayments(saved);
-                        }}
-                        className={cn(
-                          "w-full p-3 rounded-xl border text-left transition-all group",
-                          selectedBookingId === booking.id
-                            ? "bg-zinc-900 border-zinc-900 shadow-lg dark:bg-white"
-                            : "bg-zinc-50 border-zinc-100 hover:border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700"
-                        )}
-                      >
-                         <div className="flex justify-between items-center">
+                      <div key={booking.id} className="group relative">
+                        <button 
+                          onClick={() => {
+                            setSelectedBookingId(booking.id);
+                            const saved = (booking.payments || []).map(p => ({
+                              name: p.playerName || '',
+                              value: p.amount,
+                              paymentMethodId: p.methodId || ''
+                            }));
+                            setAthletePayments(saved);
+                            setInitialAthletePayments(saved);
+                          }}
+                          className={cn(
+                            "w-full p-3 rounded-xl border text-left transition-all",
+                            selectedBookingId === booking.id
+                              ? "bg-zinc-900 border-zinc-900 shadow-lg dark:bg-white"
+                              : "bg-zinc-50 border-zinc-100 hover:border-zinc-200 dark:bg-zinc-800 dark:border-zinc-700"
+                          )}
+                        >
+                          <div className="flex justify-between items-center">
                             <div>
-                               <p className={cn("text-[10px] font-black uppercase tracking-tighter italic leading-none", selectedBookingId === booking.id ? "text-white dark:text-zinc-900" : "dark:text-white")}>{booking.customerName}</p>
-                               <p className={cn("text-[8px] font-bold uppercase tracking-widest mt-1", selectedBookingId === booking.id ? "text-zinc-400" : "text-zinc-500")}>
-                                 {format(new Date(booking.startTime), 'HH:mm')} - {format(new Date(booking.endTime), 'HH:mm')}
-                               </p>
+                              <p className={cn("text-[10px] font-black uppercase tracking-tighter italic leading-none", selectedBookingId === booking.id ? "text-white dark:text-zinc-900" : "dark:text-white")}>{booking.customerName}</p>
+                              <p className={cn("text-[8px] font-bold uppercase tracking-widest mt-1", selectedBookingId === booking.id ? "text-zinc-400" : "text-zinc-500")}>
+                                {format(new Date(booking.startTime), 'HH:mm')} - {format(new Date(booking.endTime), 'HH:mm')}
+                              </p>
                             </div>
                             <span className={cn("font-mono font-black text-xs", selectedBookingId === booking.id ? "text-white dark:text-zinc-900" : "text-blue-600")}>R$ {booking.totalPrice}</span>
-                         </div>
-                      </button>
+                          </div>
+                        </button>
+                        {/* Edit / Delete buttons */}
+                        <div className="absolute right-1 top-1 hidden group-hover:flex gap-1">
+                          <button
+                            onClick={(e) => { e.stopPropagation(); setEditingBooking(booking); setEditBookingForm({ customerName: booking.customerName, customerPhone: booking.customerPhone || '', totalPrice: booking.totalPrice, startTime: format(new Date(booking.startTime), "yyyy-MM-dd'T'HH:mm"), endTime: format(new Date(booking.endTime), "yyyy-MM-dd'T'HH:mm") }); }}
+                            className="p-1 bg-white dark:bg-zinc-700 rounded-lg shadow text-zinc-500 hover:text-blue-600 transition-colors"
+                            title="Editar"
+                          ><Pencil size={10} /></button>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); handleDeleteBooking(booking); }}
+                            className="p-1 bg-white dark:bg-zinc-700 rounded-lg shadow text-zinc-500 hover:text-rose-600 transition-colors"
+                            title="Excluir"
+                          ><Trash2 size={10} /></button>
+                        </div>
+                      </div>
                     ))}
                     {todayBookings.filter(b => b.status !== 'cancelled' && !b.courtFinalized).length === 0 && <p className="text-center text-zinc-400 italic py-6 text-[10px]">Nenhum agendamento pendente para hoje.</p>}
                   </div>
@@ -853,6 +912,23 @@ export const POS = () => {
                               <div className="text-right">
                                 <p className="text-[9px] font-black uppercase tracking-widest text-zinc-400">Total</p>
                                 <p className="text-3xl font-black text-blue-600 italic leading-none">R$ {booking?.totalPrice}</p>
+                                {/* +30 / -30 min controls */}
+                                {booking && (
+                                  <div className="flex items-center justify-end gap-1 mt-2">
+                                    <button
+                                      onClick={() => handleAdjustTime(booking, -30)}
+                                      className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-900/20 text-rose-500 text-[8px] font-black uppercase hover:bg-rose-100 transition-all"
+                                    >
+                                      <Minus size={8} /> 30min
+                                    </button>
+                                    <button
+                                      onClick={() => handleAdjustTime(booking, 30)}
+                                      className="flex items-center gap-0.5 px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 text-[8px] font-black uppercase hover:bg-emerald-100 transition-all"
+                                    >
+                                      <Plus size={8} /> 30min
+                                    </button>
+                                  </div>
+                                )}
                               </div>
                            </header>
 
@@ -1329,6 +1405,52 @@ export const POS = () => {
           </footer>
         </div>
       </div>
+
+       <AnimatePresence>
+        {editingBooking && (
+          <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 bg-zinc-950/40 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white dark:bg-zinc-900 rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4"
+            >
+              <div className="flex justify-between items-center">
+                <h2 className="text-lg font-black dark:text-white uppercase tracking-tight italic">Editar Agendamento</h2>
+                <button onClick={() => setEditingBooking(null)} className="text-zinc-400 hover:text-rose-500"><X size={20}/></button>
+              </div>
+              <div className="space-y-3">
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-1">Responsável</label>
+                  <input value={editBookingForm.customerName} onChange={e => setEditBookingForm({...editBookingForm, customerName: e.target.value})} className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl outline-none dark:text-white text-sm font-bold" />
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-1">Telefone</label>
+                  <input value={editBookingForm.customerPhone} onChange={e => setEditBookingForm({...editBookingForm, customerPhone: e.target.value})} className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl outline-none dark:text-white text-sm font-bold" />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-1">Início</label>
+                    <input type="datetime-local" value={editBookingForm.startTime} onChange={e => setEditBookingForm({...editBookingForm, startTime: e.target.value})} className="w-full px-3 py-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl outline-none dark:text-white text-xs font-bold" />
+                  </div>
+                  <div>
+                    <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-1">Fim</label>
+                    <input type="datetime-local" value={editBookingForm.endTime} onChange={e => setEditBookingForm({...editBookingForm, endTime: e.target.value})} className="w-full px-3 py-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl outline-none dark:text-white text-xs font-bold" />
+                  </div>
+                </div>
+                <div>
+                  <label className="text-[9px] font-black uppercase tracking-widest text-zinc-400 block mb-1">Valor Total (R$)</label>
+                  <input type="number" step="0.01" value={editBookingForm.totalPrice} onChange={e => setEditBookingForm({...editBookingForm, totalPrice: Number(e.target.value)})} className="w-full px-4 py-3 bg-zinc-50 dark:bg-zinc-800 rounded-xl outline-none dark:text-white text-sm font-mono font-bold" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button onClick={() => setEditingBooking(null)} className="flex-1 py-3 bg-zinc-100 dark:bg-zinc-800 rounded-2xl font-black text-[10px] uppercase tracking-widest text-zinc-500">Cancelar</button>
+                <button onClick={handleSaveEditBooking} className="flex-1 py-3 bg-zinc-900 dark:bg-white text-white dark:text-zinc-900 rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg">Salvar</button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
 
        <AnimatePresence>
         {isNewClientModalOpen && (
