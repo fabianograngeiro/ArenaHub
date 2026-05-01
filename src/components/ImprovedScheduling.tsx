@@ -266,16 +266,27 @@ export const ImprovedScheduling = () => {
   };
 
   const updateBookingDuration = async (booking: Booking, minutes: number) => {
-    const updatedEnd = addHours(parseISO(booking.endTime), minutes / 60);
     const court = courts.find(c => c.id === booking.courtId);
     if (!court) return;
-    const duration = differenceInMinutes(updatedEnd, parseISO(booking.startTime));
+
+    const baseEnd = booking.actualEndTime ? parseISO(booking.actualEndTime) : parseISO(booking.endTime);
+    const baseStart = booking.actualStartTime ? parseISO(booking.actualStartTime) : parseISO(booking.startTime);
+    const updatedEnd = addHours(baseEnd, minutes / 60);
+    const duration = differenceInMinutes(updatedEnd, baseStart);
     if (duration < 30) return;
+
     try {
-      await updateDoc(doc(db, 'bookings', booking.id), {
-        endTime: updatedEnd.toISOString(),
+      const payload: Record<string, any> = {
         totalPrice: (court.pricePerHour * duration) / 60
-      });
+      };
+
+      if (booking.actualEndTime) {
+        payload.actualEndTime = updatedEnd.toISOString();
+      }
+
+      payload.endTime = updatedEnd.toISOString();
+
+      await updateDoc(doc(db, 'bookings', booking.id), payload);
     } catch (error) { console.error(error); }
   };
 
@@ -503,21 +514,24 @@ export const ImprovedScheduling = () => {
                     </div>
 
                     <div className="mt-6 flex justify-between items-center">
-                      <div className="flex flex-col gap-1">
+                      <div className="flex flex-col gap-2">
                         <p className="text-[9px] font-black uppercase text-zinc-500 tracking-widest flex items-center gap-1.5">
                            <Clock size={12} /> {b.isStarted ? 'INÍCIO REAL' : 'AGENDADO'}: <span className="text-white">{format(b.isStarted ? parseISO(b.actualStartTime!) : parseISO(b.startTime), 'HH:mm')}</span>
                         </p>
-                        <button 
-                          onClick={() => {
-                            const minutes = prompt('Adicionar/remover minutos (ex: 30 ou -30):');
-                            if (minutes && !isNaN(Number(minutes))) {
-                              updateBookingDuration(b as any, Number(minutes));
-                            }
-                          }}
-                          className="text-[8px] font-black text-zinc-500 hover:text-emerald-500 uppercase tracking-tighter w-fit"
-                        >
-                          Alterar fim
-                        </button>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => updateBookingDuration(b as any, -30)}
+                            className="px-2 py-1 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all"
+                          >
+                            -30min
+                          </button>
+                          <button
+                            onClick={() => updateBookingDuration(b as any, 30)}
+                            className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all"
+                          >
+                            +30min
+                          </button>
+                        </div>
                       </div>
                       {b.isStarted && (
                       <p className={cn(
