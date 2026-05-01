@@ -693,7 +693,7 @@ export const ImprovedScheduling = () => {
                                 "text-[5px] md:text-[7px] font-black uppercase tracking-widest truncate px-1 md:px-2 py-0.5 md:py-1 rounded-sm md:rounded-lg", 
                                 active ? "bg-white/10 text-emerald-400" : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
                               )}>
-                                {`${(b.customerName || '').trim().split(' ')[0]}-${courts.find(c => c.id === b.courtId)?.name || 'Quadra'}-${format(parseISO(b.startTime), 'HH:mm')}`}
+                                {`${(b.customerName || '').trim().split(' ')[0]}-${format(parseISO(b.startTime), 'HH:mm')}`}
                               </div>
                             ))}
                             {dayBookings.length > 2 && (
