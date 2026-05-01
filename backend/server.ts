@@ -31,7 +31,8 @@ interface AuthRequest extends express.Request {
 
 dotenv.config({ path: path.join(process.cwd(), "backend", ".env") });
 
-const DB_PATH = path.join(process.cwd(), "backend", "db.json");
+const DB_PATH =
+  process.env.DB_PATH ?? path.join(process.cwd(), "backend", "db.json");
 const PORT = Number(process.env.BACKEND_PORT || process.env.PORT || 3000);
 
 function isAllowedOrigin(origin: string): boolean {
