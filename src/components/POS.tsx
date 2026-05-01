@@ -66,6 +66,7 @@ export const POS = () => {
   // PGTO QUADRA State
   const [selectedBookingId, setSelectedBookingId] = useState<string>('');
   const [athletePayments, setAthletePayments] = useState<{name: string, value: number, paymentMethodId: string}[]>([]);
+  const [initialAthletePayments, setInitialAthletePayments] = useState<{name: string, value: number, paymentMethodId: string}[]>([]);
   const [newAthlete, setNewAthlete] = useState({ name: '', value: 0, paymentMethodId: '' });
   
   // Court Share in Direct Sale
@@ -412,7 +413,8 @@ export const POS = () => {
         payments: formattedPayments,
         paidAmount: formattedPayments.reduce((acc, p) => acc + p.amount, 0)
       });
-      alert('Progresso salvo com sucesso!');
+      // Sync initialAthletePayments so next Finalizar only records truly new entries
+      setInitialAthletePayments([...athletePayments]);
     } catch (error) { console.error(error); }
   };
 
@@ -420,12 +422,17 @@ export const POS = () => {
     const booking = todayBookings.find(b => b.id === selectedBookingId);
     if (!booking) return;
 
-    const paidByAthletes = athletePayments.reduce((acc, p) => acc + p.value, 0);
-    const remaining = booking.totalPrice - paidByAthletes;
-    
+    const totalPaid = athletePayments.reduce((acc, p) => acc + p.value, 0);
+    const remaining = booking.totalPrice - totalPaid;
+
+    // Determine NEW payments (not in initialAthletePayments) to avoid duplicate transactions
+    const initialSum = initialAthletePayments.reduce((acc, p) => acc + p.value, 0);
+    const newPaymentsTotal = totalPaid - initialSum;
+
     try {
-      // Record athlete payments as transactions
-      for (const p of athletePayments) {
+      // 1. Record only NEW athlete payments as transactions
+      const newPayments = athletePayments.slice(initialAthletePayments.length);
+      for (const p of newPayments) {
         const method = paymentMethods.find(m => m.id === p.paymentMethodId);
         if (p.value > 0) {
           await addDoc(collection(db, 'transactions'), {
@@ -439,31 +446,49 @@ export const POS = () => {
         }
       }
 
-      // If there's a remaining balance, create an Open Tab
-      if (remaining !== 0) {
-        await addDoc(collection(db, 'openTabs'), {
+      // 2. Handle open tab for remaining balance — deduplicated via linkedBookingId
+      const existingTab = openTabs.find(t => (t as any).linkedBookingId === booking.id);
+
+      if (remaining > 0) {
+        const tabData = {
           label: `Saldo Quadra: ${booking.customerName}`,
           clientId: booking.clientId || null,
           items: [{
             product: {
               id: 'court_balance',
-              name: remaining > 0 ? 'Débito Restante Quadra' : 'Crédito Excedente Quadra',
-              price: remaining, // Positive for debt, negative for credit
+              name: 'Débito Restante Quadra',
+              price: remaining,
               cost: 0,
               stock: 999,
               minStock: 0
             },
             quantity: 1
           }],
-          openedAt: new Date().toISOString(),
+          linkedBookingId: booking.id,
           status: 'open'
-        });
+        };
+
+        if (existingTab) {
+          await updateDoc(doc(db, 'openTabs', existingTab.id), tabData);
+        } else {
+          await addDoc(collection(db, 'openTabs'), {
+            ...tabData,
+            openedAt: new Date().toISOString()
+          });
+        }
+      } else {
+        // Fully paid — close any existing linked tab
+        if (existingTab) {
+          await updateDoc(doc(db, 'openTabs', existingTab.id), { status: 'closed' });
+        }
       }
 
-      // Update booking status
-      const allPayments = [
-        ...(booking.payments || []),
-        ...athletePayments.map(p => {
+      // 3. Update booking — overwrite payments, mark as finalized, hide from court list
+      await updateDoc(doc(db, 'bookings', booking.id), {
+        paidAmount: totalPaid,
+        status: remaining <= 0 ? 'confirmed' : 'pending',
+        courtFinalized: true,
+        payments: athletePayments.map(p => {
           const method = paymentMethods.find(m => m.id === p.paymentMethodId);
           return {
             id: crypto.randomUUID(),
@@ -474,18 +499,12 @@ export const POS = () => {
             method: method?.name || 'Outro'
           };
         })
-      ];
-
-      await updateDoc(doc(db, 'bookings', booking.id), {
-        paidAmount: (booking.paidAmount || 0) + paidByAthletes,
-        status: (booking.totalPrice - ((booking.paidAmount || 0) + paidByAthletes)) <= 0 ? 'confirmed' : 'pending',
-        payments: allPayments
       });
 
-      alert('Pagamento de quadra finalizado! ' + (remaining !== 0 ? 'O saldo foi gerado em "Em Consumo".' : ''));
       setSelectedBookingId('');
       setAthletePayments([]);
-      if (remaining !== 0) setActiveTab('consumption');
+      setInitialAthletePayments([]);
+      if (remaining > 0) setActiveTab('consumption');
     } catch (error) { console.error(error); }
   };
 
@@ -750,18 +769,18 @@ export const POS = () => {
                     <Calendar className="text-zinc-400" size={16} /> Aluguéis de Hoje
                   </h3>
                   <div className="space-y-2">
-                    {todayBookings.filter(b => b.status !== 'cancelled').map(booking => (
+                    {todayBookings.filter(b => b.status !== 'cancelled' && !b.courtFinalized).map(booking => (
                       <button 
                         key={booking.id}
                         onClick={() => {
                           setSelectedBookingId(booking.id);
-                          setAthletePayments(
-                            (booking.payments || []).map(p => ({
-                              name: p.playerName || '',
-                              value: p.amount,
-                              paymentMethodId: p.methodId || ''
-                            }))
-                          );
+                          const saved = (booking.payments || []).map(p => ({
+                            name: p.playerName || '',
+                            value: p.amount,
+                            paymentMethodId: p.methodId || ''
+                          }));
+                          setAthletePayments(saved);
+                          setInitialAthletePayments(saved);
                         }}
                         className={cn(
                           "w-full p-3 rounded-xl border text-left transition-all group",
@@ -781,7 +800,7 @@ export const POS = () => {
                          </div>
                       </button>
                     ))}
-                    {todayBookings.length === 0 && <p className="text-center text-zinc-400 italic py-6 text-[10px]">Nenhum agendamento para hoje.</p>}
+                    {todayBookings.filter(b => b.status !== 'cancelled' && !b.courtFinalized).length === 0 && <p className="text-center text-zinc-400 italic py-6 text-[10px]">Nenhum agendamento pendente para hoje.</p>}
                   </div>
                 </div>
               </div>

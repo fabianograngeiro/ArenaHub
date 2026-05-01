@@ -27,6 +27,7 @@ export interface Booking {
   totalPrice: number;
   paidAmount: number;
   payments: Payment[];
+  courtFinalized?: boolean; // true after PDV court payment is finalized
 }
 
 export interface Client {
@@ -152,6 +153,7 @@ export interface OpenTab {
   items: CartItem[];
   openedAt: string;
   status: 'open' | 'closed';
+  linkedBookingId?: string; // Links tab to a court booking (for dedup)
 }
 
 export interface Customer {
