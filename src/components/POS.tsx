@@ -755,7 +755,13 @@ export const POS = () => {
                         key={booking.id}
                         onClick={() => {
                           setSelectedBookingId(booking.id);
-                          setAthletePayments([]);
+                          setAthletePayments(
+                            (booking.payments || []).map(p => ({
+                              name: p.playerName || '',
+                              value: p.amount,
+                              paymentMethodId: p.methodId || ''
+                            }))
+                          );
                         }}
                         className={cn(
                           "w-full p-3 rounded-xl border text-left transition-all group",
