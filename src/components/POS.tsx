@@ -86,8 +86,22 @@ export const POS = () => {
     const tUnsub = onSnapshot(query(collection(db, 'openTabs'), orderBy('openedAt', 'desc')), (s) => {
       setOpenTabs(s.docs.map(d => ({ id: d.id, ...d.data() } as OpenTab)).filter(t => t.status === 'open'));
     });
+    const seedPaymentMethods = async () => {
+      const defaults: Omit<PaymentMethod, 'id'>[] = [
+        { name: 'Dinheiro',          type: 'cash',        isActive: true },
+        { name: 'PIX',               type: 'pix',         isActive: true },
+        { name: 'Cartão de Débito',  type: 'card_debit',  isActive: true },
+        { name: 'Cartão de Crédito', type: 'card_credit', isActive: true },
+        { name: 'Conta-corrente',    type: 'account',     isActive: true, isSystem: true },
+      ];
+      for (const m of defaults) {
+        await addDoc(collection(db, 'paymentMethods'), m);
+      }
+    };
     const payUnsub = onSnapshot(collection(db, 'paymentMethods'), (s) => {
-      const methods = s.docs.map(d => ({ id: d.id, ...d.data() } as PaymentMethod)).filter(m => m.isActive);
+      const all = s.docs.map(d => ({ id: d.id, ...d.data() } as PaymentMethod));
+      if (all.length === 0) { seedPaymentMethods(); return; }
+      const methods = all.filter(m => m.isActive);
       setPaymentMethods(methods);
       const defaultMethod = methods.find(m => m.type === 'cash' || m.type === 'pix')?.id || methods[0]?.id;
       setSelectedPaymentMethod(defaultMethod);
