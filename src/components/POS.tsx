@@ -623,8 +623,11 @@ export const POS = () => {
                           <TrendingUp size={7} />
                         </div>
                       )}
-                      <div className="aspect-square bg-zinc-50 dark:bg-zinc-800 rounded-lg mb-1 flex items-center justify-center text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-zinc-900 transition-all duration-500">
-                        <Package size={14} />
+                      <div className="aspect-square bg-zinc-50 dark:bg-zinc-800 rounded-lg mb-1 flex items-center justify-center text-zinc-300 group-hover:bg-zinc-900 group-hover:text-white dark:group-hover:bg-white dark:group-hover:text-zinc-900 transition-all duration-500 overflow-hidden">
+                        {product.imageUrl
+                          ? <img src={product.imageUrl} alt={product.name} className="w-full h-full object-cover" />
+                          : <Package size={14} />
+                        }
                       </div>
                       <h3 className="font-black dark:text-white truncate uppercase text-[7px] tracking-tight italic leading-tight">{product.name}</h3>
                       <div className="flex flex-col mt-0.5">
