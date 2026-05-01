@@ -154,6 +154,78 @@ uninstall_docker() {
   ok "Container Docker removido."
 }
 
+# ─── Atualização via PM2 ────────────────────────────────────────────────────
+update_pm2() {
+  local port="$1"
+
+  cd "$APP_DIR"
+
+  msg "Atualizando dependências (npm install)..."
+  npm install
+
+  msg "Recompilando frontend (Vite build)..."
+  VITE_API_URL="" npm run build
+
+  # Preservar porta atual se não informada
+  if [[ -f backend/.env ]]; then
+    local cur_port; cur_port=$(grep -oP '(?<=BACKEND_PORT=)[0-9]+' backend/.env 2>/dev/null || echo "3000")
+    port="${port:-$cur_port}"
+  fi
+  printf 'BACKEND_PORT=%s\n' "$port" > backend/.env
+
+  msg "Reiniciando processo PM2 '${APP_NAME}'..."
+  pm2 restart "$APP_NAME" 2>/dev/null || \
+    pm2 start backend/server.ts \
+      --name "$APP_NAME" \
+      --interpreter tsx \
+      --cwd "$APP_DIR"
+
+  pm2 save --force
+
+  ok "ArenaHub atualizado e rodando via PM2 na porta ${port}!"
+  ui_msg "Atualização concluída" \
+    "✔ ArenaHub atualizado!\n\nAcesse: http://localhost:${port}\n\nComandos úteis:\n  pm2 status\n  pm2 logs ${APP_NAME}\n  pm2 restart ${APP_NAME}"
+}
+
+# ─── Atualização via Docker ──────────────────────────────────────────────────
+update_docker() {
+  local port="$1"
+
+  if ! command -v docker &>/dev/null; then
+    err "Docker não encontrado."
+    exit 1
+  fi
+
+  cd "$APP_DIR"
+
+  msg "Parando container atual..."
+  docker stop "$APP_NAME" 2>/dev/null || true
+  docker rm   "$APP_NAME" 2>/dev/null || true
+
+  msg "Reconstruindo imagem Docker '${APP_NAME}:latest'..."
+  docker build \
+    --build-arg VITE_API_URL="" \
+    -t "${APP_NAME}:latest" \
+    .
+
+  msg "Garantindo volume de dados '${APP_NAME}_db'..."
+  docker volume create "${APP_NAME}_db" >/dev/null 2>&1 || true
+
+  msg "Reiniciando container '${APP_NAME}' na porta ${port}..."
+  docker run -d \
+    --name "$APP_NAME" \
+    --restart unless-stopped \
+    -p "${port}:3000" \
+    -v "${APP_NAME}_db:/app/data" \
+    -e "BACKEND_PORT=3000" \
+    -e "DB_PATH=/app/data/db.json" \
+    "${APP_NAME}:latest"
+
+  ok "ArenaHub atualizado e rodando via Docker na porta ${port}!"
+  ui_msg "Atualização concluída" \
+    "✔ ArenaHub atualizado!\n\nAcesse: http://localhost:${port}\n\nDados preservados no volume: ${APP_NAME}_db"
+}
+
 # ─── Instalação via PM2 ───────────────────────────────────────────────────────
 install_pm2() {
   local port="$1"
@@ -272,12 +344,27 @@ echo ""
 # ─── Detectar instalação existente ───────────────────────────────────────────
 CURRENT=$(detect_install)
 
+# ─── Escolher método de instalação ──────────────────────────────────────────
+METHOD=$(ui_menu "Método de Instalação" \
+  "Como deseja instalar o ArenaHub?" \
+  "pm2"    "PM2     — Node.js process manager  (recomendado)" \
+  "docker" "Docker  — Container isolado + volume de dados")
+
+[[ -z "$METHOD" ]] && { msg "Operação cancelada."; exit 0; }
+
+# ─── Se instalado, perguntar ação (instalar / atualizar / desinstalar) ────────
 if [[ "$CURRENT" != "none" ]]; then
   warn "Instalação detectada: ${CURRENT^^}"
   echo ""
 
-  if ui_yesno "Desinstalar ArenaHub" \
-      "O ArenaHub já está instalado via ${CURRENT^^}.\n\nDeseja desinstalar o app?"; then
+  ACAO=$(ui_menu "O que deseja fazer?" \
+    "O ArenaHub já está instalado via ${CURRENT^^}.\nEscolha a ação:" \
+    "update"    "Atualizar   — Rebuild + reiniciar (dados preservados)" \
+    "uninstall" "Desinstalar — Remover o app completamente")
+
+  [[ -z "$ACAO" ]] && { msg "Operação cancelada."; exit 0; }
+
+  if [[ "$ACAO" == "uninstall" ]]; then
     sep
     case "$CURRENT" in
       pm2)    uninstall_pm2 ;;
@@ -285,19 +372,37 @@ if [[ "$CURRENT" != "none" ]]; then
     esac
     echo ""
     ok "ArenaHub desinstalado com sucesso."
-  else
-    msg "Operação cancelada."
+    exit 0
   fi
+
+  # ── Atualizar ──
+  PORT=$(ui_input "Porta" \
+    "Confirme ou altere a porta do app:" \
+    "3000")
+  [[ -z "$PORT" ]] && PORT=3000
+  validate_port "$PORT"
+
+  sep
+  echo -e "  ${BOLD}Ação   :${RESET} ATUALIZAR"
+  echo -e "  ${BOLD}Método :${RESET} ${CURRENT^^}"
+  echo -e "  ${BOLD}Porta  :${RESET} ${PORT}"
+  sep
+  echo ""
+
+  if ! ui_yesno "Confirmar atualização" \
+      "Atualizar ArenaHub via ${CURRENT^^} na porta ${PORT}?\n\nContinuar?"; then
+    msg "Operação cancelada."
+    exit 0
+  fi
+
+  echo ""
+  sep
+  case "$CURRENT" in
+    pm2)    update_pm2    "$PORT" ;;
+    docker) update_docker "$PORT" ;;
+  esac
   exit 0
 fi
-
-# ─── Escolher método de instalação ───────────────────────────────────────────
-METHOD=$(ui_menu "Método de Instalação" \
-  "Como deseja instalar o ArenaHub?" \
-  "pm2"    "PM2     — Node.js process manager  (recomendado)" \
-  "docker" "Docker  — Container isolado + volume de dados")
-
-[[ -z "$METHOD" ]] && { msg "Instalação cancelada."; exit 0; }
 
 # ─── Escolher porta ──────────────────────────────────────────────────────────
 PORT=$(ui_input "Porta" \
@@ -309,6 +414,7 @@ validate_port "$PORT"
 
 # ─── Confirmar ───────────────────────────────────────────────────────────────
 sep
+echo -e "  ${BOLD}Ação   :${RESET} INSTALAR"
 echo -e "  ${BOLD}Método :${RESET} ${METHOD^^}"
 echo -e "  ${BOLD}Porta  :${RESET} ${PORT}"
 sep
