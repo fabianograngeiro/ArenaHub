@@ -456,15 +456,29 @@ export const ImprovedScheduling = () => {
                               </p>
                            </div>
                         </div>
-                        <button 
-                          onClick={() => {
-                            // Edit logic or open modal
-                            setIsModalOpen(true);
-                          }}
-                          className="px-3 md:px-4 py-1.5 md:py-2 bg-white/5 hover:bg-white/10 rounded-lg md:rounded-xl text-[7px] md:text-[8px] font-black uppercase tracking-widest text-zinc-400 transition-all"
-                        >
-                          Editar Sessão
-                        </button>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            onClick={() => updateBookingDuration(b as any, -30)}
+                            className="px-2.5 py-1.5 bg-rose-500/10 hover:bg-rose-500/20 text-rose-500 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all"
+                            title="Diminuir 30 minutos"
+                          >
+                            -30m
+                          </button>
+                          <button
+                            onClick={() => updateBookingDuration(b as any, 30)}
+                            className="px-2.5 py-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-500 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all"
+                            title="Aumentar 30 minutos"
+                          >
+                            +30m
+                          </button>
+                          <button
+                            onClick={() => handleCancelBooking(b as any)}
+                            className="px-2.5 py-1.5 bg-white/5 hover:bg-rose-500/20 text-zinc-400 hover:text-rose-400 rounded-lg text-[8px] font-black uppercase tracking-wider transition-all"
+                            title="Cancelar horário"
+                          >
+                            Excluir
+                          </button>
+                        </div>
                       </div>
 
                       <div className="relative h-3 md:h-4 bg-white/5 rounded-full overflow-hidden mb-6">
